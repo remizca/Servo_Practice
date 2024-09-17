@@ -1,48 +1,52 @@
-#include <Arduino.h>
+#include <Arduino.h>  // Include the Arduino library
 #include <Servo.h>  // Include the Servo library
+#include <LiquidCrystal.h>  // Include the LiquidCrystal library
 
 Servo myservo;  // Create a servo object
+LiquidCrystal lcd(12, 11, 5, 4, 3, 2);  // Create an LCD object
 
-const int buttonPin1 = 2;  // Pin for the first button
-const int buttonPin2 = 3;  // Pin for the second button
+const int buttonPin1 = 7;  // Pin for the first button
+const int buttonPin2 = 8;  // Pin for the second button
 int angle = 90;  // Initial angle for the servo
 
-/**
- * @brief Initialize the servo and the two buttons.
- *
- * Initialize the servo to the initial angle (90 degrees) and set the two
- * buttons as input with internal pull-up resistors.
- */
+void updateLCD();  // Declare the updateLCD function
+
 void setup() {
   myservo.attach(9);  // Attaches the servo on pin 9 to the servo object
   myservo.write(angle);  // Initialize servo to 90 degrees
   pinMode(buttonPin1, INPUT_PULLUP);  // Set button pin 1 as input with internal pull-up resistor
   pinMode(buttonPin2, INPUT_PULLUP);  // Set button pin 2 as input with internal pull-up resistor
+  
+  lcd.begin(16, 2);  // Initialize the LCD with 16 columns and 2 rows
+  lcd.print("Angle: ");  // Print initial text
+  lcd.setCursor(0, 1);  // Move cursor to the second row
+  lcd.print("Position: ");  // Print initial text
+  updateLCD();  // Update the LCD with the initial angle and position
 }
 
-
-/**
- * @brief Main loop of the program.
- *
- * Check the state of the two buttons and adjust the servo angle accordingly.
- * If button 1 is pressed, increase the angle by 1 degree. If button 2 is
- * pressed, decrease the angle by 1 degree. The angle is limited to the range
- * 0 to 180 degrees. The servo is moved to the new angle and a short delay is
- * used to allow the servo to reach the new position.
- */
-
 void loop() {
-    static int8_t dir = 0;
-    if (digitalRead(buttonPin1) == LOW) dir = 1;
-    if (digitalRead(buttonPin2) == LOW) dir = -1;
-    
-    if (dir != 0) {
-      angle = constrain(angle + dir, 0, 180);
-      myservo.write(angle);
-      delay(15);
-      dir = 0;
-    }
+  if (digitalRead(buttonPin1) == LOW) {  // Check if button 1 is pressed
+    angle += 1;  // Increase the angle
+    if (angle > 180) angle = 180;  // Limit the angle to 180 degrees
+    myservo.write(angle);  // Move the servo to the new angle
+    updateLCD();  // Update the LCD with the new angle and position
+    delay(15);  // Wait for the servo to reach the position
   }
   
+  if (digitalRead(buttonPin2) == LOW) {  // Check if button 2 is pressed
+    angle -= 1;  // Decrease the angle
+    if (angle < 0) angle = 0;  // Limit the angle to 0 degrees
+    myservo.write(angle);  // Move the servo to the new angle
+    updateLCD();  // Update the LCD with the new angle and position
+    delay(15);  // Wait for the servo to reach the position
+  }
+}
 
-
+void updateLCD() {
+  lcd.setCursor(7, 0);  // Move cursor to the position after "Angle: "
+  lcd.print(angle);  // Print the current angle
+  lcd.print("   ");  // Clear any leftover characters
+  lcd.setCursor(10, 1);  // Move cursor to the position after "Position: "
+  lcd.print(angle);  // Print the current position (same as angle in this case)
+  lcd.print("   ");  // Clear any leftover characters
+}
