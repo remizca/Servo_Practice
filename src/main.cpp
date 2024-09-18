@@ -1,52 +1,119 @@
-#include <Arduino.h>  // Include the Arduino library
-#include <Servo.h>  // Include the Servo library
-#include <LiquidCrystal.h>  // Include the LiquidCrystal library
+#include <Servo.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <Arduino.h>
 
-Servo myservo;  // Create a servo object
-LiquidCrystal lcd(12, 11, 5, 4, 3, 2);  // Create an LCD object
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
 
-const int buttonPin1 = 7;  // Pin for the first button
-const int buttonPin2 = 8;  // Pin for the second button
-int angle = 90;  // Initial angle for the servo
+const int trigPin = 2;       // ultrasonic trig pin
+const int echoPin = 3;       // ultrasonic echo pin
+const int servo1Pin = 9;     // servo 1 signal pin
+const int servo2Pin = 10;    // servo 2 signal pin
+const int oledResetPin = -1; // oled reset pin (not used in this case)
+const float maxDist = 400;   // Maximum distance the sensor can measure (in cm)
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, oledResetPin);
+Servo servo1, servo2;
 
-void updateLCD();  // Declare the updateLCD function
+int servo1Angle = 90; // Initial angle for servo 1
+int servo2Angle = 90; // Initial angle for servo 2
 
-void setup() {
-  myservo.attach(9);  // Attaches the servo on pin 9 to the servo object
-  myservo.write(angle);  // Initialize servo to 90 degrees
-  pinMode(buttonPin1, INPUT_PULLUP);  // Set button pin 1 as input with internal pull-up resistor
-  pinMode(buttonPin2, INPUT_PULLUP);  // Set button pin 2 as input with internal pull-up resistor
-  
-  lcd.begin(16, 2);  // Initialize the LCD with 16 columns and 2 rows
-  lcd.print("Angle: ");  // Print initial text
-  lcd.setCursor(0, 1);  // Move cursor to the second row
-  lcd.print("Position: ");  // Print initial text
-  updateLCD();  // Update the LCD with the initial angle and position
+void setup()
+{
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+
+  servo1.attach(servo1Pin);
+  servo2.attach(servo2Pin);
+
+  servo1.write(servo1Angle);
+  servo2.write(servo2Angle);
+
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C); // initialize oled
+  display.display();
+  delay(2000); // pause for 2 seconds
 }
 
-void loop() {
-  if (digitalRead(buttonPin1) == LOW) {  // Check if button 1 is pressed
-    angle += 1;  // Increase the angle
-    if (angle > 180) angle = 180;  // Limit the angle to 180 degrees
-    myservo.write(angle);  // Move the servo to the new angle
-    updateLCD();  // Update the LCD with the new angle and position
-    delay(15);  // Wait for the servo to reach the position
+float getDistance()
+{
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  float duration = pulseIn(echoPin, HIGH);
+  float distance = duration * 0.034 / 2;
+  return distance;
+}
+
+void displayInfo(float distance, int servo1Angle, int servo2Angle)
+{
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 0);
+  display.print("Distance: ");
+  display.print(distance);
+  display.println(" cm");
+  display.print("Servo1 Angle: ");
+  display.println(servo1Angle);
+  display.print("Servo2 Angle: ");
+  display.println(servo2Angle);
+  if (distance < 30)
+  {
+    display.println("Object Detected!");
   }
-  
-  if (digitalRead(buttonPin2) == LOW) {  // Check if button 2 is pressed
-    angle -= 1;  // Decrease the angle
-    if (angle < 0) angle = 0;  // Limit the angle to 0 degrees
-    myservo.write(angle);  // Move the servo to the new angle
-    updateLCD();  // Update the LCD with the new angle and position
-    delay(15);  // Wait for the servo to reach the position
+  else if (distance > maxDist)
+  {
+    display.println("Out of Range!");
+  }
+  display.display();
+}
+
+void moveServo(float distance)
+{
+  if (distance < 30)
+  {
+    if (distance < 10)
+    {
+      servo1Angle = 90;
+      servo2Angle = 90;
+    }
+    else if (distance < 20)
+    {
+      servo1Angle = 0;
+      servo2Angle = 0;
+    }
+    else if (distance < 30)
+    {
+      servo1Angle = 180;
+      servo2Angle = 180;
+    }
+    servo1.write(servo1Angle);
+    servo2.write(servo2Angle);
+  }
+  else if (distance > maxDist)
+  {
+    // Handle out-of-range distance
+    servo1.write(90); // Reset to default position
+    servo2.write(90); // Reset to default position
   }
 }
 
-void updateLCD() {
-  lcd.setCursor(7, 0);  // Move cursor to the position after "Angle: "
-  lcd.print(angle);  // Print the current angle
-  lcd.print("   ");  // Clear any leftover characters
-  lcd.setCursor(10, 1);  // Move cursor to the position after "Position: "
-  lcd.print(angle);  // Print the current position (same as angle in this case)
-  lcd.print("   ");  // Clear any leftover characters
+void loop()
+{
+  float distance = getDistance();
+  if (distance <= maxDist)
+  {
+    moveServo(distance);
+  }
+  else
+  {
+    // Handle out-of-range distance
+    servo1.write(90); // Reset to default position
+    servo2.write(90); // Reset to default position
+  }
+  displayInfo(distance, servo1Angle, servo2Angle);
+  delay(100); // Small delay to avoid excessive updates
 }
