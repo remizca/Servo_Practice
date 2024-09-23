@@ -2,118 +2,105 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include <Arduino.h>
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
+#define OLED_RESET    -1  // Reset pin # (or -1 if sharing Arduino reset pin)
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-const int trigPin = 2;       // ultrasonic trig pin
-const int echoPin = 3;       // ultrasonic echo pin
-const int servo1Pin = 9;     // servo 1 signal pin
-const int servo2Pin = 10;    // servo 2 signal pin
-const int oledResetPin = -1; // oled reset pin (not used in this case)
-const float maxDist = 400;   // Maximum distance the sensor can measure (in cm)
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, oledResetPin);
-Servo servo1, servo2;
+// Pin definitions
+const int soundSensorPin = A0;
+const int threshold = 400; // Set the threshold for sound detection
+const int horizontalServoPin = 9;
+const int verticalServoPin = 10;
 
-int servo1Angle = 90; // Initial angle for servo 1
-int servo2Angle = 90; // Initial angle for servo 2
+Servo horizontalServo;
+Servo verticalServo;
 
-void setup()
-{
-  pinMode(trigPin, OUTPUT);
-  pinMode(echoPin, INPUT);
+int soundDetectionCount = 0;
+bool ongoingSound = false;
+int blinkState = 0;
+unsigned long lastBlinkTime = 0;
+unsigned long blinkInterval = 500; // Blink every 500ms
 
-  servo1.attach(servo1Pin);
-  servo2.attach(servo2Pin);
+void setup() {
+  // Initialize servos
+  horizontalServo.attach(horizontalServoPin);
+  verticalServo.attach(verticalServoPin);
+  horizontalServo.write(90); // Start in center position (left-right)
+  verticalServo.write(90);   // Start in center position (up-down)
 
-  servo1.write(servo1Angle);
-  servo2.write(servo2Angle);
-
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3C); // initialize oled
-  display.display();
-  delay(2000); // pause for 2 seconds
-}
-
-float getDistance()
-{
-  digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPin, LOW);
-  float duration = pulseIn(echoPin, HIGH);
-  float distance = duration * 0.034 / 2;
-  return distance;
-}
-
-void displayInfo(float distance, int servo1Angle, int servo2Angle)
-{
+  // Initialize OLED display
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x64
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;);
+  }
   display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.setCursor(0, 0);
-  display.print("Distance: ");
-  display.print(distance);
-  display.println(" cm");
-  display.print("Servo1 Angle: ");
-  display.println(servo1Angle);
-  display.print("Servo2 Angle: ");
-  display.println(servo2Angle);
-  if (distance < 30)
-  {
-    display.println("Object Detected!");
-  }
-  else if (distance > maxDist)
-  {
-    display.println("Out of Range!");
-  }
   display.display();
+
+  // Initialize Serial Monitor
+  Serial.begin(9600);
 }
 
-void moveServo(float distance)
-{
-  if (distance < 30)
-  {
-    if (distance < 10)
-    {
-      servo1Angle = 90;
-      servo2Angle = 90;
+
+void loop() {
+  // Read sound sensor value
+  int soundValue = analogRead(soundSensorPin);
+
+  if (soundValue > threshold) {
+    // Sound detected
+    if (!ongoingSound) {
+      // Count only when a new sound starts
+      soundDetectionCount++;
+      ongoingSound = true;
     }
-    else if (distance < 20)
-    {
-      servo1Angle = 0;
-      servo2Angle = 0;
-    }
-    else if (distance < 30)
-    {
-      servo1Angle = 180;
-      servo2Angle = 180;
-    }
-    servo1.write(servo1Angle);
-    servo2.write(servo2Angle);
+    Serial.println("Sound detected!");
+    
+    // Turn toward sound (This is basic. You may improve direction detection.)
+    horizontalServo.write(map(soundValue, threshold, 1023, 45, 135)); // Simple mapping to servo angles
+    verticalServo.write(map(soundValue, threshold, 1023, 45, 135));   // Can adjust to your preference
+
+    // Display detection info on OLED
+    updateDisplay(true);
+  } else {
+    // No sound detected
+    ongoingSound = false;
+    updateDisplay(false);
   }
-  else if (distance > maxDist)
-  {
-    // Handle out-of-range distance
-    servo1.write(90); // Reset to default position
-    servo2.write(90); // Reset to default position
+
+  // Blink square if sound is ongoing
+  if (ongoingSound) {
+    unsigned long currentTime = millis();
+    if (currentTime - lastBlinkTime >= blinkInterval) {
+      blinkState = !blinkState;
+      lastBlinkTime = currentTime;
+    }
+  } else {
+    blinkState = 0;
   }
 }
 
-void loop()
-{
-  float distance = getDistance();
-  if (distance <= maxDist)
-  {
-    moveServo(distance);
+void updateDisplay(bool isDetecting) {
+  display.clearDisplay();
+
+  // Display sound detection count
+  display.setTextSize(2);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.print("Count: ");
+  display.println(soundDetectionCount);
+
+  // Display ongoing detection status
+  if (isDetecting) {
+    display.setTextSize(1);
+    display.setCursor(0, 30);
+    display.println("Sound Detected");
   }
-  else
-  {
-    // Handle out-of-range distance
-    servo1.write(90); // Reset to default position
-    servo2.write(90); // Reset to default position
+
+  // Display blinking square in top-left corner
+  if (blinkState) {
+    display.fillRect(0, 0, 10, 10, SSD1306_WHITE); // Draw a 10x10 square
   }
-  displayInfo(distance, servo1Angle, servo2Angle);
-  delay(100); // Small delay to avoid excessive updates
+
+  display.display();
 }
