@@ -1,122 +1,146 @@
-#include <Servo.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <Servo.h>
 
+// OLED display width and height
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-#define OLED_RESET -1 // Reset pin # (or -1 if sharing Arduino reset pin)
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-// Pin definitions
-const int soundSensorPin = A0;
-const int threshold = 400; // Set the threshold for sound detection
-const int horizontalServoPin = 9;
-const int verticalServoPin = 10;
+// Create SSD1306 display object
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-Servo horizontalServo;
-Servo verticalServo;
+// Define the Servo object
+Servo myServo;
 
-int soundDetectionCount = 0;
-bool ongoingSound = false;
-int blinkState = 0;
-unsigned long lastBlinkTime = 0;
-unsigned long blinkInterval = 500; // Blink every 500ms
+// Pin assignments
+const int servoPin = 9; // Pin connected to the servo motor
+const int potPin = A0;  // Pin connected to the potentiometer
+const int joyXPin = A1; // Pin connected to the joystick X-axis
 
-void updateDisplay(bool isDetecting);
+int servoPos = 90;     // Initial position for the servo (center)
+int potValue = 0;      // To store potentiometer value
+int joyXValue = 0;     // To store joystick X-axis value
+int lastServoPos = 90; // To store the last servo position to avoid unnecessary updates
+
+// Dead zone range
+int calibratedCenter = 512; // Will be dynamically calibrated
+int deadZoneMin;            // Minimum joystick value for "center" (calculated dynamically)
+int deadZoneMax;            // Maximum joystick value for "center" (calculated dynamically)
+
+// Function to smooth analog readings
+int readSmooth(int pin)
+{
+  int total = 0;
+  for (int i = 0; i < 10; i++)
+  { // Average 10 readings
+    total += analogRead(pin);
+    delay(5); // Small delay to reduce noise between readings
+  }
+  return total / 10; // Return the average value
+}
 
 void setup()
 {
-  // Initialize servos
-  horizontalServo.attach(horizontalServoPin);
-  verticalServo.attach(verticalServoPin);
-  horizontalServo.write(90); // Start in center position (left-right)
-  verticalServo.write(90);   // Start in center position (up-down)
+  // Initialize Serial Monitor for debugging
+  Serial.begin(9600);
 
-  // Initialize OLED display
+  // Initialize the OLED display with I2C address 0x3C
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
-  { // Address 0x3C for 128x64
+  {
     Serial.println(F("SSD1306 allocation failed"));
     for (;;)
-      ;
+      ; // Don't proceed, loop forever
   }
-  display.clearDisplay();
-  display.display();
 
-  // Initialize Serial Monitor
-  Serial.begin(9600);
+  // Clear the buffer
+  display.clearDisplay();
+  display.setTextSize(1);              // Set the font size
+  display.setTextColor(SSD1306_WHITE); // Set the color to white
+  display.setCursor(0, 0);
+  display.print("Calibrating...");
+  display.display(); // Show "Calibrating..." message on the OLED
+
+  // **Dynamic Calibration**: Capture the joystick center value at startup
+  delay(2000);                            // Allow time to ensure the joystick is at rest
+  calibratedCenter = readSmooth(joyXPin); // Capture initial joystick position as center
+
+  // Define dynamic dead zone around the calibrated center
+  deadZoneMin = calibratedCenter - 20; // 20 units below the center
+  deadZoneMax = calibratedCenter + 20; // 20 units above the center
+
+  // Display calibrated center and dead zone values on the OLED
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.print("Center Calibrated: ");
+  display.print(calibratedCenter);
+  display.display();
+  delay(2000); // Display calibration result for 2 seconds
+
+  // Attach the servo motor
+  myServo.attach(servoPin);
+  myServo.write(servoPos); // Set servo to the center position initially
 }
 
 void loop()
 {
-  // Read sound sensor value
-  int soundValue = analogRead(soundSensorPin);
+  // Smooth joystick X-axis value
+  joyXValue = readSmooth(joyXPin); // Using the readSmooth function
 
-  if (soundValue > threshold)
-  {
-    // Sound detected
-    if (!ongoingSound)
-    {
-      // Count only when a new sound starts
-      soundDetectionCount++;
-      ongoingSound = true;
-    }
-    Serial.println("Sound detected!");
+  // Print joystick value and calibrated center to Serial Monitor for debugging
+  Serial.print("Joystick X Value: ");
+  Serial.println(joyXValue);
+  Serial.print("Calibrated Center: ");
+  Serial.println(calibratedCenter);
 
-    // Turn toward sound (This is basic. You may improve direction detection.)
-    horizontalServo.write(map(soundValue, threshold, 1023, 45, 135)); // Simple mapping to servo angles
-    verticalServo.write(map(soundValue, threshold, 1023, 45, 135));   // Can adjust to your preference
-
-    // Display detection info on OLED
-    updateDisplay(true);
-  }
-  else
-  {
-    // No sound detected
-    ongoingSound = false;
-    updateDisplay(false);
-  }
-
-  // Blink square if sound is ongoing
-  if (ongoingSound)
-  {
-    unsigned long currentTime = millis();
-    if (currentTime - lastBlinkTime >= blinkInterval)
-    {
-      blinkState = !blinkState;
-      lastBlinkTime = currentTime;
-    }
-  }
-  else
-  {
-    blinkState = 0;
-  }
-}
-
-void updateDisplay(bool isDetecting)
-{
+  // Display joystick value on the OLED
   display.clearDisplay();
-
-  // Display sound detection count
-  display.setTextSize(2);
-  display.setTextColor(SSD1306_WHITE);
   display.setCursor(0, 0);
-  display.print("Count: ");
-  display.println(soundDetectionCount);
+  display.print("Joystick X Value: ");
+  display.print(joyXValue); // Show the real-time joystick X-axis value
 
-  // Display ongoing detection status
-  if (isDetecting)
-  {
-    display.setTextSize(1);
-    display.setCursor(0, 30);
-    display.println("Sound Detected");
-  }
+  display.setCursor(0, 10);
+  display.print("Center: ");
+  display.print(calibratedCenter); // Display the calibrated center value
 
-  // Display blinking square in top-left corner
-  if (blinkState)
-  {
-    display.fillRect(0, 0, 10, 10, SSD1306_WHITE); // Draw a 10x10 square
-  }
+  // Display the dead zone range for clarity
+  display.setCursor(0, 20);
+  display.print("Dead Zone: ");
+  display.print(deadZoneMin);
+  display.print(" - ");
+  display.print(deadZoneMax);
 
+  // Update the OLED with these values
   display.display();
+
+  // Map joystick input to servo angle, but with the dynamic dead zone around the calibrated center
+  if (joyXValue < deadZoneMin)
+  {
+    // If the joystick is pushed to the left
+    servoPos = map(joyXValue, 0, deadZoneMin, 0, 85); // Move from 0 to 85 degrees
+  }
+  else if (joyXValue > deadZoneMax)
+  {
+    // If the joystick is pushed to the right
+    servoPos = map(joyXValue, deadZoneMax, 1023, 95, 180); // Move from 95 to 180 degrees
+  }
+  else
+  {
+    // Joystick is in the center dead zone
+    servoPos = 90; // Keep servo at center
+  }
+
+  // Only update servo if the position has significantly changed
+  if (abs(servoPos - lastServoPos) > 2)
+  { // Only move if change is > 2 degrees
+    myServo.write(servoPos);
+    lastServoPos = servoPos;
+  }
+
+  // Smooth potentiometer value for speed control
+  potValue = readSmooth(potPin);
+  int delaySpeed = map(potValue, 0, 1023, 0, 50); // Adjust delay for speed
+
+  // Add a delay based on potentiometer for speed control
+  delay(delaySpeed);
 }
